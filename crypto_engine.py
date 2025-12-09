@@ -1,13 +1,13 @@
 import hashlib
 from typing import List, Optional, Tuple
 
-from Encryption import encrypt_password
+from Encryption import encrypt_password, verify_password
 from models import User
 from user_manager import UserManager
 
 
 class CryptoEngine:
-    """Facade that bridges the GUI with the existing encryption and user CRUD stack."""
+    """Facade that bridges the GUI with encryption and user management."""
 
     def __init__(self, excel_file: str = 'users.xlsx') -> None:
         self._user_manager = UserManager(excel_file)
@@ -30,11 +30,11 @@ class CryptoEngine:
         if any(user.username == username for user in self._user_manager.users):
             return False, 'That username is already in use.'
 
-        hashed = self._hash_password(password)
-        encrypted = encrypt_password(password)
-        stored_secret = self._compose_secret(hashed, encrypted)
+        # Encrypt password and get keys
+        encrypted_hex, keys_dict = encrypt_password(password)
 
-        if self._user_manager.create_user(username, stored_secret):
+        # Create user with encrypted password and save keys
+        if self._user_manager.create_user(username, encrypted_hex, keys_dict):
             return True, 'Account created successfully. You can log in now.'
         return False, 'Unable to create user. Please try again.'
 
@@ -47,11 +47,17 @@ class CryptoEngine:
         if not user:
             return False, 'Invalid username or password.'
 
-        stored_hash = self._extract_hash(user.password)
-        candidate_hash = self._hash_password(password)
-        if stored_hash != candidate_hash:
+        # Get encryption keys for this user
+        keys_dict = self._user_manager.get_encryption_keys(username)
+        if not keys_dict:
+            return False, 'Authentication failed. Unable to retrieve encryption keys.'
+
+        # Verify password using decryption
+        encrypted_password = user.password
+        if not verify_password(password, encrypted_password, keys_dict):
             return False, 'Invalid username or password.'
 
+        # Login successful
         self._current_user = user
         self._current_user.is_logged_in = True
         return True, f'Welcome back, {user.username}!'
@@ -82,27 +88,19 @@ class CryptoEngine:
         if not value:
             return False, 'Enter a value to encrypt.'
         try:
-            encrypted = encrypt_password(value)
+            encrypted, keys_dict = encrypt_password(value)
+            # Return both encrypted value and a formatted version of keys
+            result = f"Encrypted: {encrypted}\n\n"
+            result += "Keys (save these to decrypt):\n"
+            result += f"DES Key: {keys_dict['DES_key'][:32]}...\n"
+            result += f"AES Key: {keys_dict['AES_key'][:32]}...\n"
+            result += "RSA Private Key: [stored securely]\n"
         except Exception as exc:
             return False, f'Encryption failed: {exc}'
-        return True, encrypted
+        return True, result
 
     def _find_user(self, username: str) -> Optional[User]:
         for user in self._user_manager.users:
             if user.username == username:
                 return user
         return None
-
-    @staticmethod
-    def _hash_password(password: str) -> str:
-        return hashlib.sha256(password.encode()).hexdigest()
-
-    @staticmethod
-    def _compose_secret(hashed_value: str, encrypted_value: str) -> str:
-        return f'{hashed_value}:{encrypted_value}'
-
-    @staticmethod
-    def _extract_hash(secret: str) -> str:
-        if ':' not in secret:
-            return secret
-        return secret.split(':', 1)[0]
