@@ -382,4 +382,4 @@ For issues, questions, or feature requests:
 
 **CryptoApp** - Secure by Design, Modern by Nature
 
-*Last Updated: December 9, 2024*
+*Last Updated: December 9, 2025*
